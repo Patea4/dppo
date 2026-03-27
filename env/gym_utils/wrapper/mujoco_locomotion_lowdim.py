@@ -7,6 +7,7 @@ For consistency, we will use Dict{} for the observation space, with the key "sta
 import numpy as np
 import gym
 from gym import spaces
+import imageio
 
 
 class MujocoLocomotionLowdimWrapper(gym.Env):
@@ -14,8 +15,11 @@ class MujocoLocomotionLowdimWrapper(gym.Env):
         self,
         env,
         normalization_path,
+        render_fps=30,
     ):
         self.env = env
+        self.render_fps = render_fps
+        self.video_writer = None
 
         # setup spaces
         self.action_space = env.action_space
@@ -33,7 +37,7 @@ class MujocoLocomotionLowdimWrapper(gym.Env):
             low=low,
             high=high,
             shape=low.shape,
-            dtype=low.dtype,
+            dtype=np.float32,
         )
 
     def seed(self, seed=None):
@@ -45,6 +49,19 @@ class MujocoLocomotionLowdimWrapper(gym.Env):
     def reset(self, **kwargs):
         """Ignore passed-in arguments like seed"""
         options = kwargs.get("options", {})
+
+        if self.video_writer is not None:
+            self.video_writer.close()
+            self.video_writer = None
+        if "video_path" in options:
+          self.video_writer = imageio.get_writer(
+              options["video_path"],
+              format="FFMPEG",
+              mode="I",
+              fps=self.render_fps,
+              macro_block_size=None,
+          )
+
         new_seed = options.get("seed", None)
         if new_seed is not None:
             self.seed(seed=new_seed)
@@ -55,7 +72,8 @@ class MujocoLocomotionLowdimWrapper(gym.Env):
         return {"state": obs}
 
     def normalize_obs(self, obs):
-        return 2 * ((obs - self.obs_min) / (self.obs_max - self.obs_min + 1e-6) - 0.5)
+        obs = 2 * ((obs - self.obs_min) / (self.obs_max - self.obs_min + 1e-6) - 0.5)
+        return obs.astype(np.float32, copy=False)
 
     def unnormalize_action(self, action):
         action = (action + 1) / 2  # [-1, 1] -> [0, 1]
@@ -67,7 +85,15 @@ class MujocoLocomotionLowdimWrapper(gym.Env):
 
         # normalize
         obs = self.normalize_obs(raw_obs)
+        if self.video_writer is not None:
+            self.video_writer.append_data(self.render(mode="rgb_array"))
         return {"state": obs}, reward, done, info
 
     def render(self, **kwargs):
-        return self.env.render()
+        return self.env.render(**kwargs)
+
+    def close(self):
+        if self.video_writer is not None:
+            self.video_writer.close()
+            self.video_writer = None
+        self.env.close()

@@ -26,7 +26,7 @@ env:
   name: ${env_name}
   max_episode_steps: 1000
   reset_at_iteration: False
-  save_video: False
+  save_video: True
   best_reward_threshold_for_success: 3  # success rate not relevant for gym tasks
   wrappers:
     mujoco_locomotion_lowdim:
@@ -62,8 +62,8 @@ train:
   save_model_freq: 100
   val_freq: 10
   render:
-    freq: 1
-    num: 0
+    freq: 10
+    num: 3
   # PPO specific
   reward_scale_running: True
   reward_scale_const: 1.0

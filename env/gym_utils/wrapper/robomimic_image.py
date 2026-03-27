@@ -10,7 +10,7 @@ Modified from https://github.com/real-stanford/diffusion_policy/blob/main/diffus
 import numpy as np
 import gym
 from gym import spaces
-import imageio
+from env.gym_utils.video import VideoRecorder
 
 
 class RobomimicImageWrapper(gym.Env):
@@ -127,7 +127,7 @@ class RobomimicImageWrapper(gym.Env):
 
         # Start video if specified
         if "video_path" in options:
-            self.video_writer = imageio.get_writer(options["video_path"], fps=30)
+            self.video_writer = VideoRecorder(options["video_path"], fps=30)
 
         # Call reset
         new_seed = options.get(
@@ -170,6 +170,12 @@ class RobomimicImageWrapper(gym.Env):
             width=w,
             camera_name=self.render_camera_name,
         )
+
+    def close(self):
+        if self.video_writer is not None:
+            self.video_writer.close()
+            self.video_writer = None
+        self.env.close()
 
 
 if __name__ == "__main__":

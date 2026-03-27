@@ -210,7 +210,7 @@ def make_async(
                 dtype=np.float32,
             )
         env.observation_space = observation_space
-        env.action_space = gym.spaces.Box(-1, 1, shape=(action_dim,), dtype=np.int64)
+        env.action_space = gym.spaces.Box(-1, 1, shape=(action_dim,), dtype=np.float32)
         env.metadata = {
             "render.modes": ["human", "rgb_array", "depth_array"],
             "video.frames_per_second": 12,
