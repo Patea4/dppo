@@ -1,20 +1,20 @@
 defaults:
   - _self_
 hydra:
-  run:  
+  run:
     dir: ${logdir}
 _target_: agent.finetune.train_ppo_diffusion_agent.TrainPPODiffusionAgent
 
 name: ${env_name}_ppo_diffusion_mlp_ta${horizon_steps}_td${denoising_steps}_tdf${ft_denoising_steps}_ml${mask.lambda_}_mr${mask.ratio}
 logdir: ${oc.env:DPPO_LOG_DIR}/gym-finetune/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
-base_policy_path: ${oc.env:DPPO_LOG_DIR}/gym-pretrain/walker2d-medium-v2_pre_diffusion_mlp_ta4_td20/2024-06-12_23-06-12/checkpoint/state_3000.pt
+base_policy_path: ${oc.env:DPPO_LOG_DIR}/gym-pretrain/hopper-medium-v2_pre_diffusion_mlp_ta4_td20/2024-06-12_23-10-05/checkpoint/state_3000.pt
 normalization_path: ${oc.env:DPPO_DATA_DIR}/gym/${env_name}/normalization.npz
 
 seed: 42
 device: cuda:0
-env_name: walker2d-medium-v2
-obs_dim: 17
-action_dim: 6
+env_name: hopper-medium-v2
+obs_dim: 11
+action_dim: 3
 denoising_steps: 20
 ft_denoising_steps: 10
 cond_steps: 1
@@ -62,8 +62,8 @@ train:
   save_model_freq: 100
   val_freq: 10
   render:
-    freq: 10
-    num: 3
+    freq: 1
+    num: 0
   # PPO specific
   reward_scale_running: True
   reward_scale_const: 1.0
@@ -108,7 +108,7 @@ model:
   device: ${device}
 
 mask:
-  enabled: true
-  lambda_: 0.01
+  enabled: false
+  lambda_: 0.0
   ratio: 0.5
   noise_level: 1

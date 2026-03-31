@@ -19,6 +19,7 @@ import math
 
 log = logging.getLogger(__name__)
 from model.diffusion.diffusion_vpg import VPGDiffusion
+from model.diffusion.sampling import extract
 
 
 class PPODiffusion(VPGDiffusion):
@@ -197,3 +198,57 @@ class PPODiffusion(VPGDiffusion):
             bc_loss,
             eta.mean().item(),
         )
+
+    def compute_mask_loss(self, a0, cond, mask_ratio=0.5, noise_level=1):
+        """
+        Masked action reconstruction loss through actor_ft (the fine-tuned noise predictor).
+
+        For each sample in the batch, randomly zero out mask_ratio of the action timesteps
+        within the chunk, add a small amount of diffusion noise, ask actor_ft to predict
+        the noise, reconstruct x0, and compute MSE only at the masked positions.
+
+        Args:
+            a0: (batch, horizon_steps, action_dim) — clean actions from rollouts, detached.
+            cond: dict with 'state' key — observation conditioning.
+            mask_ratio: fraction of action timesteps to mask per sample.
+            noise_level: diffusion timestep t for the forward process (must be < ft_denoising_steps
+                         so gradients flow through actor_ft).
+
+        Returns:
+            loss_mask: scalar MSE over masked positions.
+        """
+        batch_size = a0.shape[0]
+
+        n_mask = max(1, int(mask_ratio * self.horizon_steps))
+        n_mask = min(n_mask, self.horizon_steps - 1)  # always keep at least 1 visible
+
+        # Build mask: 1 = masked, 0 = visible.  Shape: (batch, horizon_steps)
+        mask = torch.zeros(batch_size, self.horizon_steps, device=a0.device)
+        for i in range(batch_size):
+            idx = torch.randperm(self.horizon_steps, device=a0.device)[:n_mask]
+            mask[i, idx] = 1.0
+
+        # Expand to (batch, horizon_steps, action_dim)
+        mask_expanded = mask.unsqueeze(-1).expand(-1, -1, self.action_dim)
+
+        # Zero out masked action timesteps
+        a0_masked = a0.clone()
+        a0_masked[mask_expanded.bool()] = 0.0
+
+        # Forward diffusion at noise_level t
+        t = torch.full((batch_size,), noise_level, device=a0.device, dtype=torch.long)
+        noise = torch.randn_like(a0_masked)
+        a_noisy = self.q_sample(x_start=a0_masked, t=t, noise=noise)
+
+        # Predict noise with the fine-tuned actor (gradients flow here)
+        predicted_noise = self.actor_ft(a_noisy, t, cond=cond)
+
+        # Reconstruct predicted x0:  x0 = (x_t - sqrt(1-alpha_bar) * eps) / sqrt(alpha_bar)
+        sqrt_alpha_bar = extract(self.sqrt_alphas_cumprod, t, a0.shape)
+        sqrt_one_minus = extract(self.sqrt_one_minus_alphas_cumprod, t, a0.shape)
+        a0_pred = (a_noisy - sqrt_one_minus * predicted_noise) / sqrt_alpha_bar
+
+        # MSE only at masked positions
+        diff = (a0_pred - a0) ** 2
+        loss_mask = (diff * mask_expanded).sum() / mask_expanded.sum()
+        return loss_mask

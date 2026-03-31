@@ -25,6 +25,19 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
         # Reward horizon --- always set to act_steps for now
         self.reward_horizon = cfg.get("reward_horizon", self.act_steps)
 
+        # Masked reconstruction loss
+        mask_cfg = cfg.get("mask", None)
+        self.mask_enabled = mask_cfg is not None and mask_cfg.get("enabled", False)
+        if self.mask_enabled:
+            self.mask_lambda = float(mask_cfg.lambda_)
+            self.mask_ratio = float(mask_cfg.ratio)
+            self.mask_noise_level = int(mask_cfg.noise_level)
+            log.info(
+                f"Masked-DPPO enabled: lambda={self.mask_lambda}, ratio={self.mask_ratio}, noise_level={self.mask_noise_level}"
+            )
+        else:
+            log.info("Masked-DPPO disabled (baseline mode)")
+
         # Eta - between DDIM (=0 for eval) and DDPM (=1 for training)
         self.learn_eta = self.model.learn_eta
         if self.learn_eta:
@@ -305,6 +318,7 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                 # Update policy and critic
                 total_steps = self.n_steps * self.n_envs * self.model.ft_denoising_steps
                 clipfracs = []
+                mask_loss = torch.tensor(0.0, device=self.device)
                 for update_epoch in range(self.update_epochs):
                     # for each epoch, go through all data in batches
                     flag_break = False
@@ -321,6 +335,8 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                         obs_b = {"state": obs_k["state"][batch_inds_b]}
                         chains_prev_b = chains_k[batch_inds_b, denoising_inds_b]
                         chains_next_b = chains_k[batch_inds_b, denoising_inds_b + 1]
+                        # Final clean actions (a^0) for masked reconstruction loss
+                        a0_b = chains_k[batch_inds_b, -1].detach()
                         returns_b = returns_k[batch_inds_b]
                         values_b = values_k[batch_inds_b]
                         advantages_b = advantages_k[batch_inds_b]
@@ -354,6 +370,19 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                             + v_loss * self.vf_coef
                             + bc_loss * self.bc_loss_coeff
                         )
+
+                        # Masked reconstruction auxiliary loss
+                        if self.mask_enabled:
+                            mask_loss = self.model.compute_mask_loss(
+                                a0_b,
+                                obs_b,
+                                mask_ratio=self.mask_ratio,
+                                noise_level=self.mask_noise_level,
+                            )
+                            loss = loss + self.mask_lambda * mask_loss
+                        else:
+                            mask_loss = torch.tensor(0.0, device=self.device)
+
                         clipfracs += [clipfrac]
 
                         # update policy and critic
@@ -372,7 +401,7 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                                 self.eta_optimizer.step()
                         self.critic_optimizer.step()
                         log.info(
-                            f"approx_kl: {approx_kl}, update_epoch: {update_epoch}, num_batch: {num_batch}"
+                            f"approx_kl: {approx_kl:.4f} | mask_loss: {mask_loss.item():.4f} | update_epoch: {update_epoch} | num_batch: {num_batch}"
                         )
 
                         # Stop gradient update if KL difference reaches target
@@ -451,11 +480,10 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                     run_results[-1]["eval_best_reward"] = avg_best_reward
                 else:
                     log.info(
-                        f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
+                        f"{self.itr}: step {cnt_train_step:8d} | loss {loss:8.4f} | pg loss {pg_loss:8.4f} | value loss {v_loss:8.4f} | bc loss {bc_loss:8.4f} | mask loss {mask_loss.item():8.4f} | reward {avg_episode_reward:8.4f} | eta {eta:8.4f} | t:{time:8.4f}"
                     )
                     if self.use_wandb:
-                        wandb.log(
-                            {
+                        wandb_log = {
                                 "total env step": cnt_train_step,
                                 "loss": loss,
                                 "pg loss": pg_loss,
@@ -473,10 +501,11 @@ class TrainPPODiffusionAgent(TrainPPOAgent):
                                 "critic lr": self.critic_optimizer.param_groups[0][
                                     "lr"
                                 ],
-                            },
-                            step=self.itr,
-                            commit=True,
-                        )
+                        }
+                        if self.mask_enabled:
+                            wandb_log["loss/mask_reconstruction"] = mask_loss.item()
+                            wandb_log["loss/mask_weighted"] = (self.mask_lambda * mask_loss).item()
+                        wandb.log(wandb_log, step=self.itr, commit=True)
                     run_results[-1]["train_episode_reward"] = avg_episode_reward
                 with open(self.result_path, "wb") as f:
                     pickle.dump(run_results, f)

@@ -1,7 +1,7 @@
 defaults:
   - _self_
 hydra:
-  run:  
+  run:
     dir: ${logdir}
 _target_: agent.finetune.train_ppo_diffusion_agent.TrainPPODiffusionAgent
 
@@ -108,7 +108,7 @@ model:
   device: ${device}
 
 mask:
-  enabled: true
-  lambda_: 0.01
+  enabled: false
+  lambda_: 0.0
   ratio: 0.5
   noise_level: 1
