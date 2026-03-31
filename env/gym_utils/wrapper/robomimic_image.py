@@ -10,7 +10,6 @@ Modified from https://github.com/real-stanford/diffusion_policy/blob/main/diffus
 import numpy as np
 import gym
 from gym import spaces
-from env.gym_utils.video import VideoRecorder
 
 
 class RobomimicImageWrapper(gym.Env):

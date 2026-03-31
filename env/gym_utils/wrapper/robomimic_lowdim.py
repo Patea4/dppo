@@ -11,7 +11,6 @@ For consistency, we will use Dict{} for the observation space, with the key "sta
 import numpy as np
 import gym
 from gym import spaces
-from env.gym_utils.video import VideoRecorder
 
 
 class RobomimicLowdimWrapper(gym.Env):

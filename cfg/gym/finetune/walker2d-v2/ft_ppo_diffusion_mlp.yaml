@@ -26,7 +26,7 @@ env:
   name: ${env_name}
   max_episode_steps: 1000
   reset_at_iteration: False
-  save_video: True
+  save_video: False
   best_reward_threshold_for_success: 3  # success rate not relevant for gym tasks
   wrappers:
     mujoco_locomotion_lowdim:
